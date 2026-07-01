@@ -81,4 +81,9 @@ async function eliminarCliente(id) {
         .eq('id', id);
 
     if (error) {
-        alert("No se pudo eliminar el
+        alert("No se pudo eliminar el cliente. Si tiene créditos activos, primero debes finalizarlos o borrarlos. Motivo: " + error.message);
+    } else {
+        alert("Cliente eliminado con éxito.");
+        listarClientes();
+    }
+}
