@@ -33,6 +33,31 @@ async function cargarMetricasKPI() {
         const totalRecaudadoMes = pagosMes.reduce((sum, pago) => sum + parseFloat(pago.monto_recibido), 0);
         document.getElementById("txt-ganancia-mes").textContent = formatearMoneda.format(totalRecaudadoMes);
     }
+
+    const { data: pagosMes, error: errG } = await supabase
+        .from('pagos_historial')
+        .select(`
+            monto_recibido,
+            cuotas ( capital_cuota, monto_total_cuota )
+        `)
+        .gte('fecha_pago', primerDiaMes);
+    
+    if (!errG && pagosMes) {
+        let gananciasRealesInteres = 0;
+        
+        pagosMes.forEach(pago => {
+            const recibido = parseFloat(pago.monto_recibido);
+            const totalCuota = parseFloat(pago.cuotas.monto_total_cuota);
+            const capitalCuota = parseFloat(pago.cuotas.capital_cuota);
+            
+            // Factor proporcional: ¿Qué porcentaje de lo cobrado representa el interés?
+            const porcentajeInteres = (totalCuota - capitalCuota) / totalCuota;
+            gananciasRealesInteres += (recibido * porcentajeInteres);
+        });
+    
+        document.getElementById("txt-ganancia-mes").textContent = formatearMoneda.format(gananciasRealesInteres);
+    }
+    
 }
 
 // 2. DETECTAR CUOTAS VENCIDAS ("¿QUIÉN NO PAGÓ?")
