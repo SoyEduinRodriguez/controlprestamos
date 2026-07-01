@@ -1,4 +1,3 @@
-// Esperar a que el HTML cargue por completo
 document.addEventListener("DOMContentLoaded", () => {
     listarClientes();
 
@@ -6,11 +5,10 @@ document.addEventListener("DOMContentLoaded", () => {
     formCliente.addEventListener("submit", registrarCliente);
 });
 
-// FUNCIÓN PARA LISTAR CLIENTES (SELECT)
+// FUNCIÓN PARA LISTAR CLIENTES Y RENDERIZAR LA TABLA CON ACCIONES
 async function listarClientes() {
     const tbody = document.getElementById("tabla-clientes");
     
-    // Consultar a Supabase ordenando por ID descendente (últimos registrados primero)
     const { data: clientes, error } = await supabase
         .from('clientes')
         .select('*')
@@ -18,19 +16,17 @@ async function listarClientes() {
 
     if (error) {
         console.error("Error al obtener clientes:", error.message);
-        tbody.innerHTML = `<tr><td colspan="4" class="p-4 text-center text-red-500">Error al cargar datos.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="5" class="p-4 text-center text-red-500">Error al cargar datos.</td></tr>`;
         return;
     }
 
     if (clientes.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="4" class="p-4 text-center text-gray-500 italic">No hay clientes registrados aún.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="5" class="p-4 text-center text-gray-500 italic">No hay clientes registrados aún.</td></tr>`;
         return;
     }
 
-    // Limpiar tabla e insertar filas
     tbody.innerHTML = "";
     clientes.forEach(cliente => {
-        // Formatear la fecha para que sea legible
         const fecha = new Date(cliente.fecha_registro).toLocaleDateString('es-CO');
         
         const fila = document.createElement("tr");
@@ -44,31 +40,45 @@ async function listarClientes() {
                 </a>
             </td>
             <td class="p-3 text-gray-500">${fecha}</td>
+            <td class="p-3 text-center">
+                <button onclick="eliminarCliente(${cliente.id})" class="text-red-500 hover:text-red-700 p-1 transition-colors" title="Eliminar Cliente">
+                    <i class="fa-solid fa-trash-can"></i>
+                </button>
+            </td>
         `;
         tbody.appendChild(fila);
     });
 }
 
-// FUNCIÓN PARA CREAR CLIENTE (INSERT)
+// FUNCIÓN PARA CREAR CLIENTE
 async function registrarCliente(e) {
-    e.preventDefault(); // Evitar que la página se recargue
+    e.preventDefault();
 
     const nombreInput = document.getElementById("nombre").value.trim();
     const telefonoInput = document.getElementById("telefono").value.trim();
 
-    // Insertar en la tabla 'clientes' de Supabase
-    const { data, error } = await supabase
+    const { error } = await supabase
         .from('clientes')
-        .insert([
-            { nombre: nombreInput, telefono: telefonoInput }
-        ]);
+        .insert([{ nombre: nombreInput, telefono: telefonoInput }]);
 
     if (error) {
         alert("Hubo un error al registrar el cliente: " + error.message);
-        console.error(error);
     } else {
         alert("¡Cliente registrado con éxito!");
-        document.getElementById("form-cliente").reset(); // Limpiar el formulario
-        listarClientes(); // Recargar la lista automáticamente
+        document.getElementById("form-cliente").reset();
+        listarClientes();
     }
 }
+
+// FUNCIÓN PARA BORRAR CLIENTE
+async function eliminarCliente(id) {
+    const confirmar = confirm("¿Estás seguro de que deseas eliminar este cliente? Esto borrará de forma permanente sus préstamos e historiales asociados.");
+    if (!confirmar) return;
+
+    const { error } = await supabase
+        .from('clientes')
+        .delete()
+        .eq('id', id);
+
+    if (error) {
+        alert("No se pudo eliminar el
