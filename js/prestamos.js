@@ -116,61 +116,81 @@ async function registrarPrestamoYCuotas(e) {
     }
 }
 
-// 3. MOSTRAR LOS PRÉSTAMOS ACTIVOS CON LOS BOTONES DE ACCIÓN
+// 3. MOSTRAR LOS PRÉSTAMOS ACTIVOS Y FINALIZADOS EN DOS CONTENEDORES SEPARADOS
 async function listarPrestamosActivos() {
-    const contenedor = document.getElementById("lista-prestamos");
+    const contenedorActivos = document.getElementById("lista-prestamos");
+    const contenedorFinalizados = document.getElementById("lista-prestamos-finalizados");
 
-    const { data: prestamos, error } = await supabase
+    // A. CONSULTAR CRÉDITOS ACTIVOS
+    const { data: activos, error: errA } = await supabase
         .from('prestamos')
-        .select(`
-            id, monto_prestado, cantidad_cuotas, valor_cuota_fija, dia_pago_mensual, fecha_inicio,
-            clientes ( nombre )
-        `)
+        .select(`id, monto_prestado, cantidad_cuotas, valor_cuota_fija, dia_pago_mensual, fecha_inicio, clientes ( nombre )`)
         .eq('estado', 'ACTIVO')
         .order('id', { ascending: false });
 
-    if (error) {
-        contenedor.innerHTML = `<p class="text-red-500">Error al cargar créditos: ${error.message}</p>`;
+    // B. CONSULTAR CRÉDITOS FINALIZADOS
+    const { data: finalizados, error: errF } = await supabase
+        .from('prestamos')
+        .select(`id, monto_prestado, cantidad_cuotas, valor_cuota_fija, dia_pago_mensual, fecha_inicio, clientes ( nombre )`)
+        .eq('estado', 'FINALIZADO')
+        .order('id', { ascending: false });
+
+    if (errA || errF) {
+        contenedorActivos.innerHTML = `<p class="text-red-500">Error al actualizar paneles.</p>`;
         return;
     }
 
-    if (prestamos.length === 0) {
-        contenedor.innerHTML = `<p class="text-gray-500 italic text-sm">No hay créditos activos en este momento.</p>`;
-        return;
+    // ---- RENDERIZAR ACTIVOS ----
+    if (activos.length === 0) {
+        contenedorActivos.innerHTML = `<p class="text-gray-500 italic text-sm">No hay créditos activos en este momento.</p>`;
+    } else {
+        contenedorActivos.innerHTML = "";
+        activos.forEach(p => {
+            const div = document.createElement("div");
+            div.className = "p-4 border border-gray-100 bg-gray-50 rounded-lg flex flex-col md:flex-row justify-between items-start md:items-center gap-4 shadow-xs hover:bg-gray-100 transition-colors";
+            div.innerHTML = `
+                <div class="flex-1">
+                    <h4 class="font-bold text-gray-800 text-base">${p.clientes ? p.clientes.nombre : 'Cliente Eliminado'}</h4>
+                    <p class="text-xs text-gray-500 mt-0.5">Desembolsado el: ${new Date(p.fecha_inicio + "T00:00:00").toLocaleDateString('es-CO')}</p>
+                    <div class="flex flex-wrap gap-4 mt-2 text-xs font-medium text-gray-600">
+                        <span><i class="fa-solid fa-hand-holding-dollar text-blue-500 mr-1"></i> Capital: ${formateador.format(p.monto_prestado)}</span>
+                        <span><i class="fa-solid fa-calendar text-gray-400 mr-1"></i> Cobro: Día ${p.dia_pago_mensual}</span>
+                        <span><i class="fa-solid fa-layer-group text-purple-500 mr-1"></i> ${p.cantidad_cuotas} cuotas de ${formateador.format(p.valor_cuota_fija)}</span>
+                    </div>
+                </div>
+                <div class="flex flex-row md:flex-col items-end gap-3 w-full md:w-auto justify-between md:justify-center border-t md:border-t-0 pt-2 md:pt-0 border-gray-200">
+                    <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800">ID: #${p.id}</span>
+                    <div class="flex gap-3">
+                        <button onclick="editarPrestamo(${p.id}, ${p.dia_pago_mensual}, ${p.valor_cuota_fija})" class="text-blue-500 hover:text-blue-700 text-sm p-1 transition-colors"><i class="fa-solid fa-pen-to-square"></i></button>
+                        <button onclick="eliminarPrestamo(${p.id})" class="text-red-500 hover:text-red-700 text-sm p-1 transition-colors"><i class="fa-solid fa-trash-can"></i></button>
+                    </div>
+                </div>`;
+            contenedorActivos.appendChild(div);
+        });
     }
 
-    contenedor.innerHTML = "";
-    
-    prestamos.forEach(p => {
-        const div = document.createElement("div");
-        div.className = "p-4 border border-gray-100 bg-gray-50 rounded-lg flex flex-col md:flex-row justify-between items-start md:items-center gap-4 shadow-xs hover:bg-gray-100 transition-colors";
-        
-        div.innerHTML = `
-            <div class="flex-1">
-                <h4 class="font-bold text-gray-800 text-base">${p.clientes ? p.clientes.nombre : 'Cliente Eliminado'}</h4>
-                <p class="text-xs text-gray-500 mt-0.5">Desembolsado el: ${new Date(p.fecha_inicio + "T00:00:00").toLocaleDateString('es-CO')}</p>
-                <div class="flex flex-wrap gap-4 mt-2 text-xs font-medium text-gray-600">
-                    <span><i class="fa-solid fa-hand-holding-dollar text-blue-500 mr-1"></i> Capital: ${formateador.format(p.monto_prestado)}</span>
-                    <span><i class="fa-solid fa-calendar text-gray-400 mr-1"></i> Cobro: Día ${p.dia_pago_mensual}</span>
-                    <span><i class="fa-solid fa-layer-group text-purple-500 mr-1"></i> ${p.cantidad_cuotas} cuotas de ${formateador.format(p.valor_cuota_fija)}</span>
+    // ---- RENDERIZAR FINALIZADOS (HISTORIAL GRIS CON BADGE DE COMPLETADO) ----
+    if (finalizados.length === 0) {
+        contenedorFinalizados.innerHTML = `<p class="text-gray-400 text-sm italic">No hay créditos finalizados todavía.</p>`;
+    } else {
+        contenedorFinalizados.innerHTML = "";
+        finalizados.forEach(p => {
+            const div = document.createElement("div");
+            div.className = "p-4 border border-dashed border-gray-200 bg-white rounded-lg flex flex-col md:flex-row justify-between items-start md:items-center gap-4 text-gray-400 select-none";
+            div.innerHTML = `
+                <div class="flex-1">
+                    <h4 class="font-bold text-gray-500 text-base line-through">${p.clientes ? p.clientes.nombre : 'Cliente Eliminado'}</h4>
+                    <p class="text-[10px] text-gray-400">Totalmente cancelado en sus ${p.cantidad_cuotas} cuotas.</p>
                 </div>
-            </div>
-            <div class="flex flex-row md:flex-col items-end gap-3 w-full md:w-auto justify-between md:justify-center border-t md:border-t-0 pt-2 md:pt-0 border-gray-200">
-                <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800">
-                    ID Crédito: #${p.id}
-                </span>
-                <div class="flex gap-3">
-                    <button onclick="editarPrestamo(${p.id}, ${p.dia_pago_mensual}, ${p.valor_cuota_fija})" class="text-blue-500 hover:text-blue-700 text-sm p-1 transition-colors" title="Modificar Parámetros">
-                        <i class="fa-solid fa-pen-to-square"></i>
-                    </button>
-                    <button onclick="eliminarPrestamo(${p.id})" class="text-red-500 hover:text-red-700 text-sm p-1 transition-colors" title="Eliminar Crédito">
-                        <i class="fa-solid fa-trash-can"></i>
-                    </button>
-                </div>
-            </div>
-        `;
-        contenedor.appendChild(div);
-    });
+                <div class="flex flex-row md:flex-col items-end gap-2 w-full md:w-auto justify-between md:justify-center">
+                    <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-bold bg-green-50 text-green-700 border border-green-200">
+                        <i class="fa-solid fa-circle-check mr-1"></i> PAGADO
+                    </span>
+                    <button onclick="eliminarPrestamo(${p.id})" class="text-gray-400 hover:text-red-500 text-xs p-1 transition-colors" title="Eliminar del Historial"><i class="fa-solid fa-trash-can"></i></button>
+                </div>`;
+            contenedorFinalizados.appendChild(div);
+        });
+    }
 }
 
 // 4. FUNCIÓN PARA EDITAR PARAMETROS DEL PRÉSTAMO (DÍA DE PAGO O VALOR CUOTA)
