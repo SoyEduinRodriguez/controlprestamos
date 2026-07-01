@@ -1,5 +1,5 @@
 document.addEventListener("DOMContentLoaded", () => {
-    // Establecer la fecha de hoy por defecto en el nuevo campo del formulario
+    // Establecer la fecha de hoy por defecto en el campo del formulario
     const txtFechaInicio = document.getElementById("fecha-inicio");
     if (txtFechaInicio) {
         txtFechaInicio.value = new Date().toISOString().split('T')[0];
@@ -37,7 +37,7 @@ async function cargarClientesEnSelect() {
     });
 }
 
-// 2. REGISTRAR PRÉSTAMO Y GENERAR PLAN DE CUOTAS (CON SOPORTE PARA FECHAS PASADAS Y SEGMENTACIÓN DE INTERÉS)
+// 2. REGISTRAR PRÉSTAMO Y GENERAR PLAN DE CUOTAS
 async function registrarPrestamoYCuotas(e) {
     e.preventDefault();
 
@@ -46,19 +46,16 @@ async function registrarPrestamoYCuotas(e) {
     const cantidadCuotas = parseInt(document.getElementById("cuotas-cant").value);
     const diaPago = parseInt(document.getElementById("dia-pago").value);
     const valorCuota = parseFloat(document.getElementById("valor-cuota").value);
-    const fechaInicioInput = document.getElementById("fecha-inicio").value; // Captura 'YYYY-MM-DD'
+    const fechaInicioInput = document.getElementById("fecha-inicio").value;
 
-    // Validación matemática rápida
     if (valorCuota * cantidadCuotas < monto) {
         alert("Advertencia: El recaudo total de las cuotas no puede ser menor al capital prestado.");
         return;
     }
 
-    // MATEMÁTICA INTERNA PARA LA SEGMENTACIÓN CONTABLE:
     const capitalPorCuota = monto / cantidadCuotas;
     const interesPorCuota = valorCuota - capitalPorCuota;
 
-    // A. Insertar el Préstamo Cabecera (Soporta la fecha del pasado seleccionada)
     const { data: prestamoInsertado, error: errorPrestamo } = await supabase
         .from('prestamos')
         .insert([
@@ -68,7 +65,7 @@ async function registrarPrestamoYCuotas(e) {
                 cantidad_cuotas: cantidadCuotas, 
                 valor_cuota_fija: valorCuota, 
                 dia_pago_mensual: diaPago,
-                fecha_inicio: fechaInicioInput // Guarda la fecha real elegida (del pasado o presente)
+                fecha_inicio: fechaInicioInput
             }
         ])
         .select();
@@ -80,16 +77,12 @@ async function registrarPrestamoYCuotas(e) {
 
     const prestamoId = prestamoInsertado[0].id;
     const cuotasFilas = [];
-    
-    // B. Lógica de generación de fechas amarradas a la fecha de inicio elegida
-    // Agregamos "T00:00:00" para evitar desfases de zona horaria del navegador
     let fechaBase = new Date(fechaInicioInput + "T00:00:00"); 
 
     for (let i = 1; i <= cantidadCuotas; i++) {
         let añoTarget = fechaBase.getFullYear();
-        let mesTarget = fechaBase.getMonth() + i; // Suma un mes de forma secuencial
+        let mesTarget = fechaBase.getMonth() + i; 
         
-        // El constructor de Date maneja automáticamente los desbordamientos de fin de año/mes
         let fechaVencimiento = new Date(añoTarget, mesTarget, diaPago);
         
         const yyyy = fechaVencimiento.getFullYear();
@@ -102,14 +95,13 @@ async function registrarPrestamoYCuotas(e) {
             numero_cuota: i,
             fecha_vencimiento: fechaFormateada,
             monto_total_cuota: valorCuota,
-            capital_cuota: capitalPorCuota,   // Almacena la proporción de capital
-            interes_cuota: interesPorCuota,   // Almacena la proporción de ganancia limpia
+            capital_cuota: capitalPorCuota,
+            interes_cuota: interesPorCuota,
             monto_pagado: 0,
             estado: 'PENDIENTE'
         });
     }
 
-    // C. Insertar todas las cuotas calculadas (Bulk Insert)
     const { error: errorCuotas } = await supabase
         .from('cuotas')
         .insert(cuotasFilas);
@@ -117,17 +109,14 @@ async function registrarPrestamoYCuotas(e) {
     if (errorCuotas) {
         alert("El crédito se creó, pero hubo un error generando el plan de cuotas: " + errorCuotas.message);
     } else {
-        alert("¡Crédito y Plan de Cuotas (Capital/Interés) generados con éxito!");
+        alert("¡Crédito y Plan de Cuotas generados con éxito!");
         document.getElementById("form-prestamo").reset();
-        
-        // Re-establecer la fecha de hoy por comodidad tras el reinicio
         document.getElementById("fecha-inicio").value = new Date().toISOString().split('T')[0];
-        
         listarPrestamosActivos();
     }
 }
 
-// 3. MOSTRAR LOS PRÉSTAMOS ACTIVOS EN LA TABLA DE CONTROL DERECHA
+// 3. MOSTRAR LOS PRÉSTAMOS ACTIVOS CON LOS BOTONES DE ACCIÓN
 async function listarPrestamosActivos() {
     const contenedor = document.getElementById("lista-prestamos");
 
@@ -157,21 +146,93 @@ async function listarPrestamosActivos() {
         div.className = "p-4 border border-gray-100 bg-gray-50 rounded-lg flex flex-col md:flex-row justify-between items-start md:items-center gap-4 shadow-xs hover:bg-gray-100 transition-colors";
         
         div.innerHTML = `
-            <div>
+            <div class="flex-1">
                 <h4 class="font-bold text-gray-800 text-base">${p.clientes ? p.clientes.nombre : 'Cliente Eliminado'}</h4>
                 <p class="text-xs text-gray-500 mt-0.5">Desembolsado el: ${new Date(p.fecha_inicio + "T00:00:00").toLocaleDateString('es-CO')}</p>
-                <div class="flex gap-4 mt-2 text-xs font-medium text-gray-600">
+                <div class="flex flex-wrap gap-4 mt-2 text-xs font-medium text-gray-600">
                     <span><i class="fa-solid fa-hand-holding-dollar text-blue-500 mr-1"></i> Capital: ${formateador.format(p.monto_prestado)}</span>
                     <span><i class="fa-solid fa-calendar text-gray-400 mr-1"></i> Cobro: Día ${p.dia_pago_mensual}</span>
+                    <span><i class="fa-solid fa-layer-group text-purple-500 mr-1"></i> ${p.cantidad_cuotas} cuotas de ${formateador.format(p.valor_cuota_fija)}</span>
                 </div>
             </div>
-            <div class="text-left md:text-right">
-                <span class="text-sm font-semibold text-gray-700 block">${p.cantidad_cuotas} cuotas de ${formateador.format(p.valor_cuota_fija)}</span>
-                <span class="inline-flex items-center px-2 py-0.5 mt-1 rounded text-xs font-medium bg-blue-100 text-blue-800">
+            <div class="flex flex-row md:flex-col items-end gap-3 w-full md:w-auto justify-between md:justify-center border-t md:border-t-0 pt-2 md:pt-0 border-gray-200">
+                <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800">
                     ID Crédito: #${p.id}
                 </span>
+                <div class="flex gap-3">
+                    <button onclick="editarPrestamo(${p.id}, ${p.dia_pago_mensual}, ${p.valor_cuota_fija})" class="text-blue-500 hover:text-blue-700 text-sm p-1 transition-colors" title="Modificar Parámetros">
+                        <i class="fa-solid fa-pen-to-square"></i>
+                    </button>
+                    <button onclick="eliminarPrestamo(${p.id})" class="text-red-500 hover:text-red-700 text-sm p-1 transition-colors" title="Eliminar Crédito">
+                        <i class="fa-solid fa-trash-can"></i>
+                    </button>
+                </div>
             </div>
         `;
         contenedor.appendChild(div);
     });
+}
+
+// 4. FUNCIÓN PARA EDITAR PARAMETROS DEL PRÉSTAMO (DÍA DE PAGO O VALOR CUOTA)
+async function editarPrestamo(id, diaActual, valorActual) {
+    const nuevoDia = prompt("Modificar el día de cobro mensual (1 al 31):", diaActual);
+    if (nuevoDia === null) return;
+    
+    const diaNum = parseInt(nuevoDia);
+    if (isNaN(diaNum) || diaNum < 1 || diaNum > 31) {
+        alert("Por favor introduce un día del mes válido (1-31).");
+        return;
+    }
+
+    const nuevoValor = prompt("Modificar el valor de la cuota fija ($):", valorActual);
+    if (nuevoValor === null) return;
+
+    const valorNum = parseFloat(nuevoValor);
+    if (isNaN(valorNum) || valorNum <= 0) {
+        alert("Por favor introduce un valor de cuota válido.");
+        return;
+    }
+
+    // Ejecutar el UPDATE en la cabecera del préstamo
+    const { error: errP } = await supabase
+        .from('prestamos')
+        .update({ dia_pago_mensual: diaNum, valor_cuota_fija: valorNum })
+        .eq('id', id);
+
+    if (errP) {
+        alert("No se pudo actualizar el préstamo: " + errP.message);
+        return;
+    }
+
+    // OPCIONAL: Actualizar el valor y el día en las cuotas que sigan 'PENDIENTES'
+    const { error: errC } = await supabase
+        .from('cuotas')
+        .update({ monto_total_cuota: valorNum })
+        .eq('prestamo_id', id)
+        .eq('estado', 'PENDIENTE');
+
+    if (errC) {
+        console.warn("Préstamo actualizado, pero algunas cuotas no cambiaron su valor base:", errC.message);
+    }
+
+    alert("¡Parámetros del crédito actualizados con éxito!");
+    listarPrestamosActivos();
+}
+
+// 5. FUNCIÓN PARA ELIMINAR EL PRÉSTAMO POR COMPLETO
+async function eliminarPrestamo(id) {
+    const confirmar = confirm(`¿Estás completamente seguro de eliminar el Crédito #${id}?\n\nEsto borrará permanentemente todo su plan de cuotas y el historial de abonos recaudados. Esta acción no se puede deshacer.`);
+    if (!confirmar) return;
+
+    const { error } = await supabase
+        .from('prestamos')
+        .delete()
+        .eq('id', id);
+
+    if (error) {
+        alert("No se pudo eliminar el crédito. Motivo: " + error.message);
+    } else {
+        alert("¡Crédito e historial de cuotas eliminados correctamente!");
+        listarPrestamosActivos();
+    }
 }
