@@ -6,7 +6,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
 const formatearMoneda = new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 });
 
-// 1. CARGAR CARDs INFORMATIVAs (KPIs)
+// 1. CARGAR CARDs INFORMATIVAs (KPIs) CON MATEMÁTICA PROPORCIONAL CORREGIDA
 async function cargarMetricasKPI() {
     // A. Capital en la Calle (Suma de montos de préstamos activos)
     const { data: prestamos, error: errP } = await supabase
@@ -19,16 +19,16 @@ async function cargarMetricasKPI() {
         document.getElementById("txt-capital-calle").textContent = formatearMoneda.format(totalCalle);
     }
 
-    // B. Calcular Intereses / Ganancia del Mes Actual de Forma Proporcional
+    // B. Calcular Intereses / Ganancia Real Limpia del Mes Actual
     const fechaActual = new Date();
     const primerDiaMes = new Date(fechaActual.getFullYear(), fechaActual.getMonth(), 1).toISOString();
     
-    // Consultamos los pagos del mes en curso incluyendo datos relacionales de la cuota
+    // Consultamos los pagos del mes en curso incluyendo datos de la cuota y la cabecera del préstamo
     const { data: pagosMes, error: errG } = await supabase
         .from('pagos_historial')
         .select(`
             monto_recibido,
-            cuotas ( capital_cuota, monto_total_cuota )
+            cuotas ( capital_cuota, monto_total_cuota, prestamos ( monto_prestado, cantidad_cuotas, valor_cuota_fija ) )
         `)
         .gte('fecha_pago', primerDiaMes);
 
@@ -39,11 +39,20 @@ async function cargarMetricasKPI() {
             if (pago.cuotas) {
                 const recibido = parseFloat(pago.monto_recibido);
                 const totalCuota = parseFloat(pago.cuotas.monto_total_cuota);
-                const capitalCuota = parseFloat(pago.cuotas.capital_cuota);
                 
-                // Factor proporcional: ¿Qué porcentaje de la cuota representa la ganancia de interés?
-                const porcentajeInteres = (totalCuota - capitalCuota) / totalCuota;
-                gananciasRealesInteres += (recibido * porcentajeInteres);
+                let capitalCuota = parseFloat(pago.cuotas.capital_cuota || 0);
+                
+                // RESPALDO CONTABLE: Si las columnas nuevas están en 0 o NULL (créditos antiguos), calculamos la proporción dinámicamente
+                if (capitalCuota === 0 && pago.cuotas.prestamos) {
+                    const pCabecera = pago.cuotas.prestamos;
+                    capitalCuota = parseFloat(pCabecera.monto_prestado) / parseInt(pCabecera.cantidad_cuotas);
+                }
+                
+                // Si el valor de la cuota es válido, extraemos el porcentaje exacto que es interés/ganancia
+                if (totalCuota > 0) {
+                    const porcentajeInteres = (totalCuota - capitalCuota) / totalCuota;
+                    gananciasRealesInteres += (recibido * porcentajeInteres);
+                }
             }
         });
 
@@ -51,7 +60,7 @@ async function cargarMetricasKPI() {
     }
 }
 
-// 2. DETECTAR CUOTAS VENCIDAS CON BOTÓN DE MENSAJE AUTOMÁTICO
+// 2. DETECTAR CUOTAS VENCIDAS INCLUYENDO EL ID DE CRÉDITO
 async function cargarAlertasMora() {
     const contenedorAlertas = document.getElementById("lista-alertas");
     const txtContadorMora = document.getElementById("txt-clientes-mora");
@@ -87,21 +96,27 @@ async function cargarAlertasMora() {
 
     cuotasVencidas.forEach(c => {
         if (c.prestamos && c.prestamos.clientes) {
+            const prestamoId = c.prestamos.id;
             const cliente = c.prestamos.clientes;
             const deudaPendiente = parseFloat(c.monto_total_cuota) - parseFloat(c.monto_pagado);
             
             const div = document.createElement("div");
             div.className = "p-3 bg-red-50 border border-red-100 rounded-lg flex justify-between items-center shadow-xs text-xs";
+            
+            // Renderizado de la alerta incluyendo el ID del Crédito de manera destacada
             div.innerHTML = `
                 <div>
-                    <h4 class="font-bold text-gray-800">${cliente.nombre}</h4>
+                    <div class="flex items-center gap-2 mb-0.5">
+                        <h4 class="font-bold text-gray-800">${cliente.nombre}</h4>
+                        <span class="px-1.5 py-0.2 bg-red-200 text-red-900 rounded font-mono text-[9px] font-bold">Crédito #${prestamoId}</span>
+                    </div>
                     <p class="text-red-600 font-semibold">Atrasado: Cuota ${c.numero_cuota} (Debe: ${formatearMoneda.format(deudaPendiente)})</p>
                     <p class="text-[10px] text-gray-400">Venció el: ${new Date(c.fecha_vencimiento + "T00:00:00").toLocaleDateString('es-CO')}</p>
                 </div>
-                <a href="https://wa.me/57${cliente.telefono}?text=Hola%20${encodeURIComponent(cliente.nombre)},%20te%20saludo%20de%20parte%20de%20Finanzas%20Yenny.%20Te%20recordamos%20que%20tienes%20pendiente%20el%20pago%20de%20la%20cuota%20${c.numero_cuota}%20por%20un%20valor%20de%20${encodeURIComponent(formatearMoneda.format(deudaPendiente))}.%20Quedamos%20atentos!" 
+                <a href="https://wa.me/57${cliente.telefono}?text=Hola%20${encodeURIComponent(cliente.nombre)},%20te%20saludo%20de%20parte%20de%20Finanzas%20Yenny.%20Te%20recordamos%20que%20tienes%20pendiente%20el%20pago%20de%20la%20cuota%20${c.numero_cuota}%20del%20Cr%C3%A9dito%20%23${prestamoId}%20por%20un%20valor%20de%20${encodeURIComponent(formatearMoneda.format(deudaPendiente))}.%20Quedamos%20atentos!" 
                    target="_blank" 
-                   class="p-2 bg-red-600 hover:bg-red-700 text-white rounded-lg font-bold flex items-center gap-1 transition-colors">
-                    <i class="fa-brands fa-whatsapp"></i> Cobrar
+                   class="p-2 bg-red-600 hover:bg-red-700 text-white rounded-lg font-bold flex items-center gap-1 transition-colors ml-2 shrink-0">
+                    <i class="fa-brands fa-whatsapp text-sm"></i> Cobrar
                 </a>
             `;
             contenedorAlertas.appendChild(div);
