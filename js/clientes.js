@@ -5,7 +5,7 @@ document.addEventListener("DOMContentLoaded", () => {
     formCliente.addEventListener("submit", registrarCliente);
 });
 
-// FUNCIÓN PARA LISTAR CLIENTES Y RENDERIZAR LA TABLA CON ACCIONES
+// 1. FUNCIÓN PARA LISTAR CLIENTES Y RENDERIZAR LA TABLA CON ACCIONES (EDITAR / BORRAR)
 async function listarClientes() {
     const tbody = document.getElementById("tabla-clientes");
     
@@ -40,7 +40,10 @@ async function listarClientes() {
                 </a>
             </td>
             <td class="p-3 text-gray-500">${fecha}</td>
-            <td class="p-3 text-center">
+            <td class="p-3 text-center flex justify-center gap-3">
+                <button onclick="editarCliente(${cliente.id}, '${cliente.nombre}', '${cliente.telefono}')" class="text-blue-500 hover:text-blue-700 p-1 transition-colors" title="Editar Cliente">
+                    <i class="fa-solid fa-user-pen"></i>
+                </button>
                 <button onclick="eliminarCliente(${cliente.id})" class="text-red-500 hover:text-red-700 p-1 transition-colors" title="Eliminar Cliente">
                     <i class="fa-solid fa-trash-can"></i>
                 </button>
@@ -50,7 +53,7 @@ async function listarClientes() {
     });
 }
 
-// FUNCIÓN PARA CREAR CLIENTE
+// 2. FUNCIÓN PARA CREAR CLIENTE (INSERT)
 async function registrarCliente(e) {
     e.preventDefault();
 
@@ -70,7 +73,41 @@ async function registrarCliente(e) {
     }
 }
 
-// FUNCIÓN PARA BORRAR CLIENTE
+// 3. FUNCIÓN PARA ACTUALIZAR CLIENTE (UPDATE)
+async function editarCliente(id, nombreActual, telefonoActual) {
+    // Solicitar el nuevo nombre manteniendo el actual por defecto
+    const nuevoNombre = prompt("Modificar el nombre del cliente:", nombreActual);
+    if (nuevoNombre === null) return; // Si cancela, no hace nada
+    
+    if (nuevoNombre.trim() === "") {
+        alert("El nombre no puede estar vacío.");
+        return;
+    }
+
+    // Solicitar el nuevo teléfono manteniendo el actual por defecto
+    const nuevoTelefono = prompt("Modificar el teléfono / WhatsApp:", telefonoActual);
+    if (nuevoTelefono === null) return;
+
+    if (nuevoTelefono.trim() === "") {
+        alert("El teléfono no puede estar vacío.");
+        return;
+    }
+
+    // Ejecutar el UPDATE en Supabase
+    const { error } = await supabase
+        .from('clientes')
+        .update({ nombre: nuevoNombre.trim(), telefono: nuevoTelefono.trim() })
+        .eq('id', id);
+
+    if (error) {
+        alert("No se pudieron guardar los cambios: " + error.message);
+    } else {
+        alert("¡Cliente actualizado con éxito!");
+        listarClientes(); // Recargar la tabla con los nuevos datos
+    }
+}
+
+// 4. FUNCIÓN PARA BORRAR CLIENTE (DELETE)
 async function eliminarCliente(id) {
     const confirmar = confirm("¿Estás seguro de que deseas eliminar este cliente? Esto borrará de forma permanente sus préstamos e historiales asociados.");
     if (!confirmar) return;
