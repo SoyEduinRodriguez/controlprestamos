@@ -126,7 +126,7 @@ function actualizarMontoSugerido() {
     txtAyuda.classList.remove("hidden");
 }
 
-// 4. PROCESAR LA TRANSACCIÓN (INSERT EN HISTORIAL + UPDATE EN CUOTAS)
+// 4. PROCESAR LA TRANSACCIÓN (CON AUTO-FINALIZACIÓN DE CRÉDITO)
 async function procesarPago(e) {
     e.preventDefault();
 
@@ -134,7 +134,6 @@ async function procesarPago(e) {
     const montoRecibido = parseFloat(document.getElementById("monto-recibido").value);
     const select = document.getElementById("select-cuota");
     const opcionSeleccionada = select.options[select.selectedIndex];
-    const saldoPendienteActual = parseFloat(opcionSeleccionada.dataset.pendiente);
 
     if (montoRecibido <= 0) {
         alert("Por favor introduce un monto de dinero válido.");
@@ -152,13 +151,13 @@ async function procesarPago(e) {
     }
 
     // B. Calcular el nuevo estado lógico de la cuota
-    // Traer primero los datos guardados de la cuota para no perder el acumulado
     const { data: cuotaActual, error: errorGet } = await supabase
         .from('cuotas')
-        .select('monto_pagado, monto_total_cuota')
+        .select('monto_pagado, monto_total_cuota, prestamo_id')
         .eq('id', cuotaId)
         .single();
 
+    const prestamoId = cuotaActual.prestamo_id;
     const nuevoMontoPagado = parseFloat(cuotaActual.monto_pagado) + montoRecibido;
     let nuevoEstado = 'ABONADO';
 
@@ -166,18 +165,39 @@ async function procesarPago(e) {
         nuevoEstado = 'PAGADO';
     }
 
-    // C. Actualizar la tabla 'cuotas' con el nuevo acumulado y estado
+    // C. Actualizar la tabla 'cuotas'
     const { error: errorUpdate } = await supabase
         .from('cuotas')
         .update({ monto_pagado: nuevoMontoPagado, estado: nuevoEstado })
         .eq('id', cuotaId);
 
     if (errorUpdate) {
-        alert("El pago se guardó, pero no se pudo actualizar el estado de la cuota: " + errorUpdate.message);
+        alert("El pago se guardó, pero no se pudo actualizar la cuota: " + errorUpdate.message);
+        return;
+    }
+
+    // D. DETECCIÓN AUTOMÁTICA DE FINALIZACIÓN DEL CRÉDITO
+    // Consultamos si quedan cuotas que NO estén en estado 'PAGADO' para este préstamo
+    const { data: cuotasPendientes, error: errorCheck } = await supabase
+        .from('cuotas')
+        .select('id')
+        .eq('prestamo_id', prestamoId)
+        .neq('estado', 'PAGADO');
+
+    if (!errorCheck && cuotasPendientes.length === 0) {
+        // Si ya no hay cuotas pendientes, cerramos el préstamo de forma definitiva
+        await supabase
+            .from('prestamos')
+            .update({ estado: 'FINALIZADO' })
+            .eq('id', prestamoId);
+        
+        alert("¡Pago registrado! 🥳 Además, el crédito se ha COMPLETADO y archivado con éxito.");
     } else {
         alert("¡Pago procesado y registrado con éxito!");
-        document.getElementById("form-pago").reset();
-        document.getElementById("txt-ayuda-cuota").classList.add("hidden");
-        cargarCuotasDelPrestamo(); // Recarga la tabla de inmediato
     }
+
+    // Reiniciar y refrescar el entorno
+    document.getElementById("form-pago").reset();
+    document.getElementById("txt-ayuda-cuota").classList.add("hidden");
+    cargarPrestamosActivos(); // Al recargar la lista, el crédito finalizado ya NO saldrá en "Registrar Pago"
 }
