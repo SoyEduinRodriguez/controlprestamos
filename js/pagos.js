@@ -8,7 +8,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
 const formateador = new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 });
 
-// 1. CARGAR LOS PRÉSTAMOS EN EL SELECT PRINCIPAL
+// 1. CARGAR LOS PRÉSTAMOS EN EL SELECT PRINCIPAL (SOLO ACTIVOS)
 async function cargarPrestamosActivos() {
     const select = document.getElementById("select-prestamo");
     
@@ -27,12 +27,12 @@ async function cargarPrestamosActivos() {
     prestamos.forEach(p => {
         const option = document.createElement("option");
         option.value = p.id;
-        option.textContent = `Crédito #${p.id} - ${p.clientes.nombre}`;
+        option.textContent = `Crédito #${p.id} - ${p.clientes ? p.clientes.nombre : 'Sin Cliente'}`;
         select.appendChild(option);
     });
 }
 
-// 2. CARGAR CUOTAS Y RENDERIZAR LA TABLA DETALLADA
+// 2. CARGAR CUOTAS Y CALCULAR EL SALDO RESTANTE REAL EN EL SELECT
 async function cargarCuotasDelPrestamo() {
     const prestamoId = document.getElementById("select-prestamo").value;
     const selectCuota = document.getElementById("select-cuota");
@@ -50,7 +50,6 @@ async function cargarCuotasDelPrestamo() {
         return;
     }
 
-    // Traer todas las cuotas ligadas al préstamo elegido
     const { data: cuotas, error } = await supabase
         .from('cuotas')
         .select('*')
@@ -62,36 +61,37 @@ async function cargarCuotasDelPrestamo() {
         return;
     }
 
-    // Habilitar campos del formulario
     selectCuota.disabled = false;
     inputMonto.disabled = false;
     btnGuardar.disabled = false;
-    btnGuardar.className = "w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 rounded-lg transition duration-200";
+    btnGuardar.className = "w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-2.5 rounded-lg transition duration-200 text-sm shadow-xs";
 
     selectCuota.innerHTML = '<option value="">-- Seleccione la Cuota --</option>';
     tbody.innerHTML = "";
 
     cuotas.forEach(c => {
-        // Formatear estados con colores de Tailwind
         let badgeColor = "bg-gray-100 text-gray-800";
         if (c.estado === 'ABONADO') badgeColor = "bg-yellow-100 text-yellow-800";
         if (c.estado === 'PAGADO') badgeColor = "bg-green-100 text-green-800";
 
-        // Solo permitimos abonar a cuotas que no estén completamente pagadas
-        if (c.estado !== 'PAGADO') {
+        // MATEMÁTICA DEL SALDO RESTANTE REAL:
+        const saldoRestanteReal = parseFloat(c.monto_total_cuota) - parseFloat(c.monto_pagado);
+
+        // Solo se listan en el select las cuotas que tengan saldos pendientes por pagar
+        if (c.estado !== 'PAGADO' && saldoRestanteReal > 0) {
             const option = document.createElement("option");
             option.value = c.id;
-            option.dataset.pendiente = c.monto_total_cuota - c.monto_pagado;
-            option.textContent = `Cuota Nº ${c.numero_cuota} (Falta: ${formateador.format(c.monto_total_cuota - c.monto_pagado)})`;
+            // Guardamos el saldo real en un atributo temporal 'data' para leerlo luego con JS
+            option.dataset.pendiente = saldoRestanteReal;
+            option.textContent = `Cuota Nº ${c.numero_cuota} (Falta: ${formateador.format(saldoRestanteReal)})`;
             selectCuota.appendChild(option);
         }
 
-        // Pintar fila en la tabla de auditoría
         const fila = document.createElement("tr");
         fila.className = "hover:bg-gray-50 transition-colors";
         fila.innerHTML = `
             <td class="p-3 font-mono font-bold">Cuota ${c.numero_cuota}</td>
-            <td class="p-3 text-gray-500">${new Date(c.fecha_vencimiento).toLocaleDateString('es-CO')}</td>
+            <td class="p-3 text-gray-500">${new Date(c.fecha_vencimiento + "T00:00:00").toLocaleDateString('es-CO')}</td>
             <td class="p-3 font-semibold">${formateador.format(c.monto_total_cuota)}</td>
             <td class="p-3 text-blue-600 font-medium">${formateador.format(c.monto_pagado)}</td>
             <td class="p-3"><span class="px-2 py-0.5 rounded text-xs font-bold ${badgeColor}">${c.estado}</span></td>
@@ -104,11 +104,11 @@ async function cargarCuotasDelPrestamo() {
         selectCuota.disabled = true;
         inputMonto.disabled = true;
         btnGuardar.disabled = true;
-        btnGuardar.className = "w-full bg-gray-400 text-white font-medium py-2 rounded-lg cursor-not-allowed";
+        btnGuardar.className = "w-full bg-gray-400 text-white font-medium py-2.5 rounded-lg cursor-not-allowed text-sm";
     }
 }
 
-// 3. ACTUALIZAR EL TEXTO AUXILIAR QUE LE AYUDA A MAMÁ A VER CUÁNTO DEBEN
+// 3. PRE-CARGAR EL SALDO EXACTO EN EL INPUT DE MONTO RECIBIDO
 function actualizarMontoSugerido() {
     const select = document.getElementById("select-cuota");
     const txtAyuda = document.getElementById("txt-ayuda-cuota");
@@ -117,12 +117,15 @@ function actualizarMontoSugerido() {
 
     if (!opcionSeleccionada || !opcionSeleccionada.value) {
         txtAyuda.classList.add("hidden");
+        inputMonto.value = "";
         return;
     }
 
+    // Leemos el saldo real pendiente calculado en la función anterior
     const saldoPendiente = parseFloat(opcionSeleccionada.dataset.pendiente);
-    inputMonto.value = saldoPendiente; // Le pre-cargamos el valor total sugerido
-    txtAyuda.textContent = `El cliente cancela la cuota con: ${formateador.format(saldoPendiente)}`;
+    inputMonto.value = saldoPendiente; // Lo escribe automáticamente en el formulario
+    
+    txtAyuda.textContent = `El cliente cancela el saldo total de la cuota con: ${formateador.format(saldoPendiente)}`;
     txtAyuda.classList.remove("hidden");
 }
 
@@ -157,10 +160,16 @@ async function procesarPago(e) {
         .eq('id', cuotaId)
         .single();
 
+    if (errorGet) {
+        alert("Error al verificar saldo de la cuota.");
+        return;
+    }
+
     const prestamoId = cuotaActual.prestamo_id;
     const nuevoMontoPagado = parseFloat(cuotaActual.monto_pagado) + montoRecibido;
     let nuevoEstado = 'ABONADO';
 
+    // Si el acumulado es igual o mayor al valor de la cuota fija, pasa a PAGADO
     if (nuevoMontoPagado >= parseFloat(cuotaActual.monto_total_cuota)) {
         nuevoEstado = 'PAGADO';
     }
@@ -177,7 +186,6 @@ async function procesarPago(e) {
     }
 
     // D. DETECCIÓN AUTOMÁTICA DE FINALIZACIÓN DEL CRÉDITO
-    // Consultamos si quedan cuotas que NO estén en estado 'PAGADO' para este préstamo
     const { data: cuotasPendientes, error: errorCheck } = await supabase
         .from('cuotas')
         .select('id')
@@ -185,7 +193,6 @@ async function procesarPago(e) {
         .neq('estado', 'PAGADO');
 
     if (!errorCheck && cuotasPendientes.length === 0) {
-        // Si ya no hay cuotas pendientes, cerramos el préstamo de forma definitiva
         await supabase
             .from('prestamos')
             .update({ estado: 'FINALIZADO' })
@@ -196,8 +203,8 @@ async function procesarPago(e) {
         alert("¡Pago procesado y registrado con éxito!");
     }
 
-    // Reiniciar y refrescar el entorno
+    // Reiniciar campos y actualizar interfaces
     document.getElementById("form-pago").reset();
     document.getElementById("txt-ayuda-cuota").classList.add("hidden");
-    cargarPrestamosActivos(); // Al recargar la lista, el crédito finalizado ya NO saldrá en "Registrar Pago"
+    cargarCuotasDelPrestamo();
 }
