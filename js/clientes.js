@@ -5,7 +5,7 @@ document.addEventListener("DOMContentLoaded", () => {
     formCliente.addEventListener("submit", registrarCliente);
 });
 
-// 1. FUNCIÓN PARA LISTAR CLIENTES Y RENDERIZAR LA TABLA CON ACCIONES (EDITAR / BORRAR)
+// 1. FUNCIÓN PARA LISTAR CLIENTES Y RENDERIZAR LA TABLA CON ACCIONES
 async function listarClientes() {
     const tbody = document.getElementById("tabla-clientes");
     
@@ -53,13 +53,30 @@ async function listarClientes() {
     });
 }
 
-// 2. FUNCIÓN PARA CREAR CLIENTE (INSERT)
+// 2. FUNCIÓN PARA CREAR CLIENTE CON FILTRO ANTIDUPLICADOS INTELIGENTE
 async function registrarCliente(e) {
     e.preventDefault();
 
     const nombreInput = document.getElementById("nombre").value.trim();
     const telefonoInput = document.getElementById("telefono").value.trim();
 
+    // FILTRO DE CONTROL: Validar si ya existe un deudor con el mismo nombre o número
+    const { data: existentes, error: errorCheck } = await supabase
+        .from('clientes')
+        .select('nombre, telefono')
+        .or(`nombre.ilike.${nombreInput},telefono.eq.${telefonoInput}`);
+
+    if (errorCheck) {
+        console.error("Error en validación preventiva: ", errorCheck.message);
+    }
+
+    if (existentes && existentes.length > 0) {
+        // Encontró una coincidencia idéntica
+        alert(`🚨 ¡Control de Duplicados!\n\nNo se puede registrar. Ya existe un cliente guardado en el sistema con el nombre "${nombreInput}" o con el teléfono ${telefonoInput}. Por favor verifícalo en la lista.`);
+        return; // Frena la ejecución del INSERT
+    }
+
+    // Si pasa el filtro, procede con el registro normal
     const { error } = await supabase
         .from('clientes')
         .insert([{ nombre: nombreInput, telefono: telefonoInput }]);
@@ -73,18 +90,16 @@ async function registrarCliente(e) {
     }
 }
 
-// 3. FUNCIÓN PARA ACTUALIZAR CLIENTE (UPDATE)
+// 3. FUNCIÓN PARA ACTUALIZAR CLIENTE
 async function editarCliente(id, nombreActual, telefonoActual) {
-    // Solicitar el nuevo nombre manteniendo el actual por defecto
     const nuevoNombre = prompt("Modificar el nombre del cliente:", nombreActual);
-    if (nuevoNombre === null) return; // Si cancela, no hace nada
+    if (nuevoNombre === null) return;
     
     if (nuevoNombre.trim() === "") {
         alert("El nombre no puede estar vacío.");
         return;
     }
 
-    // Solicitar el nuevo teléfono manteniendo el actual por defecto
     const nuevoTelefono = prompt("Modificar el teléfono / WhatsApp:", telefonoActual);
     if (nuevoTelefono === null) return;
 
@@ -93,7 +108,6 @@ async function editarCliente(id, nombreActual, telefonoActual) {
         return;
     }
 
-    // Ejecutar el UPDATE en Supabase
     const { error } = await supabase
         .from('clientes')
         .update({ nombre: nuevoNombre.trim(), telefono: nuevoTelefono.trim() })
@@ -103,11 +117,11 @@ async function editarCliente(id, nombreActual, telefonoActual) {
         alert("No se pudieron guardar los cambios: " + error.message);
     } else {
         alert("¡Cliente actualizado con éxito!");
-        listarClientes(); // Recargar la tabla con los nuevos datos
+        listarClientes();
     }
 }
 
-// 4. FUNCIÓN PARA BORRAR CLIENTE (DELETE)
+// 4. FUNCIÓN PARA BORRAR CLIENTE
 async function eliminarCliente(id) {
     const confirmar = confirm("¿Estás seguro de que deseas eliminar este cliente? Esto borrará de forma permanente sus préstamos e historiales asociados.");
     if (!confirmar) return;
