@@ -32,21 +32,20 @@ async function cargarPrestamosActivos() {
     });
 }
 
-// 2. CARGAR CUOTAS Y CALCULAR EL SALDO RESTANTE REAL EN EL SELECT
+// 2. CARGAR CUOTAS Y CALCULAR EL SALDO DECRECIENTE DEL CRÉDITO EN TIEMPO REAL
 async function cargarCuotasDelPrestamo() {
     const prestamoId = document.getElementById("select-prestamo").value;
     const selectCuota = document.getElementById("select-cuota");
     const tbody = document.getElementById("tabla-estado-cuotas");
     const inputMonto = document.getElementById("monto-recibido");
     const btnGuardar = document.getElementById("btn-guardar-pago");
-    const txtAyuda = document.getElementById("txt-ayuda-cuota");
 
     if (!prestamoId) {
         selectCuota.innerHTML = '<option value="">Primero elija un crédito...</option>';
         selectCuota.disabled = true;
         inputMonto.disabled = true;
         btnGuardar.disabled = true;
-        tbody.innerHTML = `<tr><td colspan="5" class="p-4 text-center text-gray-500 italic">Selecciona un crédito para auditar sus cuotas.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="6" class="p-4 text-center text-gray-500 italic">Selecciona un crédito para auditar sus cuotas.</td></tr>`;
         return;
     }
 
@@ -69,31 +68,39 @@ async function cargarCuotasDelPrestamo() {
     selectCuota.innerHTML = '<option value="">-- Seleccione la Cuota --</option>';
     tbody.innerHTML = "";
 
+    // LÓGICA DE AMORTIZACIÓN DINÁMICA:
+    // 1. Calculamos el valor total inicial del crédito sumando todas sus cuotas bases
+    let saldoGlobalCredito = cuotas.reduce((sum, c) => sum + parseFloat(c.monto_total_cuota), 0);
+
     cuotas.forEach(c => {
         let badgeColor = "bg-gray-100 text-gray-800";
         if (c.estado === 'ABONADO') badgeColor = "bg-yellow-100 text-yellow-800";
         if (c.estado === 'PAGADO') badgeColor = "bg-green-100 text-green-800";
 
-        // MATEMÁTICA DEL SALDO RESTANTE REAL:
-        const saldoRestanteReal = parseFloat(c.monto_total_cuota) - parseFloat(c.monto_pagado);
+        const montoPagadoEnCuota = parseFloat(c.monto_pagado || 0);
+        const saldoRestanteRealCuota = parseFloat(c.monto_total_cuota) - montoPagadoEnCuota;
 
-        // Solo se listan en el select las cuotas que tengan saldos pendientes por pagar
-        if (c.estado !== 'PAGADO' && saldoRestanteReal > 0) {
+        // 2. Al Saldo Global del crédito le restamos lo que YA se pagó de ESTA cuota específica
+        saldoGlobalCredito -= montoPagadoEnCuota;
+
+        // Llenar el select con cuotas pendientes
+        if (c.estado !== 'PAGADO' && saldoRestanteRealCuota > 0) {
             const option = document.createElement("option");
             option.value = c.id;
-            // Guardamos el saldo real en un atributo temporal 'data' para leerlo luego con JS
-            option.dataset.pendiente = saldoRestanteReal;
-            option.textContent = `Cuota Nº ${c.numero_cuota} (Falta: ${formateador.format(saldoRestanteReal)})`;
+            option.dataset.pendiente = saldoRestanteRealCuota;
+            option.textContent = `Cuota Nº ${c.numero_cuota} (Falta: ${formateador.format(saldoRestanteRealCuota)})`;
             selectCuota.appendChild(option);
         }
 
+        // 3. Pintar la fila incluyendo la nueva columna de Saldo Global Amortizado
         const fila = document.createElement("tr");
         fila.className = "hover:bg-gray-50 transition-colors";
         fila.innerHTML = `
             <td class="p-3 font-mono font-bold">Cuota ${c.numero_cuota}</td>
             <td class="p-3 text-gray-500">${new Date(c.fecha_vencimiento + "T00:00:00").toLocaleDateString('es-CO')}</td>
             <td class="p-3 font-semibold">${formateador.format(c.monto_total_cuota)}</td>
-            <td class="p-3 text-blue-600 font-medium">${formateador.format(c.monto_pagado)}</td>
+            <td class="p-3 text-blue-600 font-medium">${formateador.format(montoPagadoEnCuota)}</td>
+            <td class="p-3 text-gray-800 font-bold bg-blue-50/50">${formateador.format(saldoGlobalCredito)}</td>
             <td class="p-3"><span class="px-2 py-0.5 rounded text-xs font-bold ${badgeColor}">${c.estado}</span></td>
         `;
         tbody.appendChild(fila);
